@@ -3,12 +3,12 @@ package request
 import (
 	"fmt"
 	"io"
-	// "os"
 	"strings"
 	"unicode"
 )
 
-const bufferSize int = 8
+const bufferSize int = 1024
+const crlf = "\r\n"
 
 type parseState int
 
@@ -19,7 +19,14 @@ const (
 
 type Request struct {
 	RequestLine RequestLine
-	parseState  parseState
+	// parseState  parseState
+	State State
+}
+
+type State struct {
+	parseState parseState
+	dataRead   uint64
+	dataParced uint64
 }
 
 type RequestLine struct {
@@ -39,10 +46,11 @@ func isKeywordCapitalized(key string) bool {
 
 func (r *Request) parse(data []byte) (int, error) {
 
-	if r.parseState == DONE {
+	if r.State.parseState == DONE {
 		return -1, fmt.Errorf("error: trying to read data in DONE state")
 	}
-	if r.parseState != INITIALIZED {
+
+	if r.State.parseState != INITIALIZED {
 		return -2, fmt.Errorf("error: unknown state")
 	}
 
@@ -55,19 +63,18 @@ func (r *Request) parse(data []byte) (int, error) {
 		return 0, nil
 	}
 
-	r.parseState = DONE
+	r.State.parseState = DONE
 	return bytesRead, nil
 }
 
 func parseRequestLine(line string, r *Request) (int, error) {
 
-	idx := strings.Index(line, "\r\n")
+	idx := strings.Index(line, crlf)
 	if idx == -1 {
 		return 0, nil
 	}
 
 	requestLine := line[:idx]
-
 	parts := strings.Fields(requestLine)
 
 	if len(parts) != 3 {
@@ -104,9 +111,15 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	buf := make([]byte, bufferSize)
 	readToIndex := 0
 
-	r := &Request{parseState: INITIALIZED}
+	r := &Request{
+		State: State{
+			parseState: INITIALIZED,
+			dataRead:   0,
+			dataParced: 0,
+		},
+	}
 
-	for r.parseState != DONE {
+	for r.State.parseState != DONE {
 
 		if readToIndex == len(buf) {
 			newBuf := make([]byte, 2*len(buf))
@@ -120,11 +133,12 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		}
 
 		if err == io.EOF {
-			r.parseState = DONE
+			r.State.parseState = DONE
 			break
 		}
 
 		readToIndex += n
+		r.State.dataRead += uint64(n)
 		consumed, parseErr := r.parse(buf[:readToIndex])
 		if parseErr != nil {
 			return nil, parseErr
@@ -133,29 +147,9 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		if consumed > 0 {
 			copy(buf, buf[consumed:readToIndex])
 			readToIndex -= consumed
+			r.State.dataParced += uint64(consumed)
 		}
 	}
+
 	return r, nil
 }
-
-// 	request := strings.parts(string(buf), "\r\n")
-// 	if len(request) == 0 || request[0] == "" {
-// 		return nil, fmt.Errorf("empty request")
-// 	}
-//
-// 	info, parseErr := parseRequestLine(request[0])
-// 	if parseErr != nil {
-// 		fmt.Fprintln(os.Stderr, parseErr)
-// 		return nil, parseErr
-// 	}
-//
-// 	baby := Request{
-// 		RequestLine: RequestLine{
-// 			Method:        info[0],
-// 			RequestTarget: info[1],
-// 			HttpVersion:   info[2][5:],
-// 		},
-// 	}
-//
-// 	return &baby, nil
-// }
