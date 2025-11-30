@@ -87,7 +87,7 @@ func TestParseHeaders(t *testing.T) {
 	n, done, err = h.Parse(data)
 	require.NoError(t, err)
 	assert.Equal(t, "text/html", h["conten^t-type"])
-	assert.True(t, done)
+	assert.False(t, done)
 
 	// Test: Empty key
 	h = NewHeaders()
@@ -97,4 +97,11 @@ func TestParseHeaders(t *testing.T) {
 	assert.Equal(t, 0, n)
 	assert.False(t, done)
 
+	// Test: Multiple values with same key
+	h = NewHeaders()
+	data = []byte("Host: localhost69420\r\nSet-Person: lane-loves-go\r\nSet-Person: prime-loves-zig\r\nSet-Person: tj-loves-ocaml\r\n\r\n")
+	n, done, err = h.Parse(data)
+	require.NoError(t, err)
+	require.Equal(t, 106, n)
+	assert.False(t, done)
 }

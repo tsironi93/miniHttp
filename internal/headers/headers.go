@@ -16,15 +16,11 @@ func NewHeaders() Headers {
 
 func isValidValue(s string) bool {
 	for _, c := range s {
-		switch {
-		case c == 127:
-		case c >= 0 && c <= 31:
-		default:
-			return true
+		if c != 9 && (c < 32 || c > 126) {
+			return false
 		}
-
 	}
-	return false
+	return true
 }
 
 func isValidKey(s string) bool {
@@ -76,7 +72,12 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 			return n, false, errors.New("empty header key")
 		}
 
-		h[key] = value
+		v, ok := h[key]
+		if ok {
+			v += ", " + value
+		} else {
+			h[key] = value
+		}
 		data = data[idx+2:]
 		n += idx + 2
 	}
