@@ -2,26 +2,31 @@ package request
 
 import (
 	"fmt"
-	"github.com/tsironi93/miniHttp/internal/headers"
 	"io"
+	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/tsironi93/miniHttp/internal/headers"
 )
 
 const bufferSize int = 1024
 const crlf = "\r\n"
+const contLen = "content-length"
 
 type parseState int
 
 const (
 	INITIALIZED = iota
 	PARSING_HEADERS
+	PARSING_BODY
 	DONE
 )
 
 type Request struct {
 	RequestLine RequestLine
 	Headers     headers.Headers
+	Body        []byte
 	State       State
 }
 
@@ -46,13 +51,48 @@ func isKeywordCapitalized(key string) bool {
 	return true
 }
 
+func parceBody(r *Request, data []byte) int {
+	bytesRead := 0
+	cLen := 0
+	remaining := 0
+	v, ok := r.Headers.Get(contLen)
+
+	if ok {
+		cLen, _ = strconv.Atoi(v)
+		remaining = cLen - len(r.Body)
+		if remaining <= 0 {
+			r.State.parseState = DONE
+			return bytesRead
+		}
+	} else if !ok {
+		r.State.parseState = DONE
+		return bytesRead
+	}
+
+	toCopy := data
+	if len(toCopy) > remaining {
+		toCopy = data[:remaining]
+	}
+
+	r.Body = append(r.Body, toCopy...)
+	bytesRead += len(toCopy)
+
+	if len(r.Body) == cLen {
+		r.State.parseState = DONE
+	}
+
+	return bytesRead
+}
+
 func (r *Request) parse(data []byte) (int, error) {
 
 	if r.State.parseState == DONE {
 		return -1, fmt.Errorf("error: trying to read data in DONE state")
 	}
 
-	if r.State.parseState != INITIALIZED && r.State.parseState != PARSING_HEADERS {
+	if r.State.parseState != INITIALIZED &&
+		r.State.parseState != PARSING_HEADERS &&
+		r.State.parseState != PARSING_BODY {
 		return -2, fmt.Errorf("error: unknown state")
 	}
 
@@ -70,10 +110,10 @@ func (r *Request) parse(data []byte) (int, error) {
 
 		totalBytes += reqBytes
 		r.State.parseState = PARSING_HEADERS
-		return totalBytes, nil
+		data = data[reqBytes:]
 	}
 
-	for r.State.parseState != DONE {
+	for r.State.parseState == PARSING_HEADERS {
 
 		headBytes, done, err := r.Headers.Parse(data)
 		if err != nil {
@@ -81,7 +121,7 @@ func (r *Request) parse(data []byte) (int, error) {
 		}
 
 		if done {
-			r.State.parseState = DONE
+			r.State.parseState = PARSING_BODY
 		}
 
 		if headBytes == 0 && !done {
@@ -92,6 +132,9 @@ func (r *Request) parse(data []byte) (int, error) {
 		data = data[headBytes:]
 	}
 
+	if r.State.parseState == PARSING_BODY {
+		totalBytes += parceBody(r, data)
+	}
 	return totalBytes, nil
 }
 
@@ -157,10 +200,6 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		}
 
 		n, err := reader.Read(buf[readToIndex:])
-		if err == io.EOF && r.State.parseState != DONE {
-			return nil, err
-		}
-
 		if err != nil {
 			return nil, err
 		}
@@ -178,6 +217,5 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 			r.State.dataParced += uint64(consumed)
 		}
 	}
-
 	return r, nil
 }

@@ -23,6 +23,11 @@ func isValidValue(s string) bool {
 	return true
 }
 
+func (h Headers) Get(key string) (string, bool) {
+	v, ok := h[key]
+	return v, ok
+}
+
 func isValidKey(s string) bool {
 	for _, c := range s {
 		switch {
@@ -40,7 +45,6 @@ func isValidKey(s string) bool {
 func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 
 	for len(data) > 0 {
-
 		idx := bytes.Index(data, []byte(crlf))
 		if idx == -1 {
 			return n, false, nil
