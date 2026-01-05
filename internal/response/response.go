@@ -1,7 +1,6 @@
 package response
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -21,28 +20,34 @@ const (
 	SC500
 )
 
-type HandleError struct {
-	Code StatusCode
-	Msg  string
-}
+// func WriteErrorResponse(w io.Writer, code StatusCode, msg string) {
+// 	body := msg + "\n"
+//
+// 	h := GetDefaultHeaders(len(body))
+//
+// 	WriteStatusLine(w, code)
+// 	WriteHeaders(w, h)
+// 	io.WriteString(w, body)
+// }
+//
+// func WriteError(w io.Writer, err error) {
+// 	var errHandler *HandleError
+//
+// 	if errors.As(err, &errHandler) {
+// 		WriteErrorResponse(w, errHandler.Code, errHandler.Msg)
+// 		return
+// 	}
+// }
 
-func WriteErrorResponse(w io.Writer, code StatusCode, msg string) {
-	body := msg + "\n"
-
-	h := GetDefaultHeaders(len(body))
-
-	WriteStatusLine(w, code)
-	WriteHeaders(w, h)
-	io.WriteString(w, body)
-}
-
-func WriteError(w io.Writer, err error) {
-	var errHandler *HandleError
-
-	if errors.As(err, &errHandler) {
-		WriteErrorResponse(w, errHandler.Code, errHandler.Msg)
-		return
+func WriteResponse(w io.Writer, bodyLen int, status StatusCode) error {
+	if w == nil {
+		return fmt.Errorf("nil writer")
 	}
+
+	WriteStatusLine(w, status)
+	h := GetDefaultHeaders(bodyLen)
+	err := WriteHeaders(w, h)
+	return err
 }
 
 func WriteHeaders(w io.Writer, h headers.Headers) error {
@@ -86,20 +91,20 @@ func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
 	}
 }
 
-func (e *HandleError) Error() string {
-	return e.Msg
-}
-
-func BadRequest(msg string) *HandleError {
-	return &HandleError{
-		Code: SC400,
-		Msg:  msg,
-	}
-}
-
-func InternalError(msg string) *HandleError {
-	return &HandleError{
-		Code: SC500,
-		Msg:  msg,
-	}
-}
+// func (e *HandleError) Error() string {
+// 	return e.Msg
+// }
+//
+// func BadRequest(msg string) *HandleError {
+// 	return &HandleError{
+// 		Code: SC400,
+// 		Msg:  msg,
+// 	}
+// }
+//
+// func InternalError(msg string) *HandleError {
+// 	return &HandleError{
+// 		Code: SC500,
+// 		Msg:  msg,
+// 	}
+// }
