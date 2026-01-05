@@ -1,110 +1,126 @@
 package response
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"github.com/tsironi93/miniHttp/internal/headers"
 )
 
-const ContLen = "Content-Length"
-const Conn = "Connection"
-const ContType = "Content-Type"
+const (
+	Conn     = "Connection"
+	ContLen  = "Content-Length"
+	ContType = "Content-Type"
+)
 
 type StatusCode int
 
 const (
-	SC200 = iota
-	SC400
-	SC500
+	StatusOK                  StatusCode = 200
+	StatusBadRequest          StatusCode = 400
+	StatusInternalServerError StatusCode = 500
 )
 
-// func WriteErrorResponse(w io.Writer, code StatusCode, msg string) {
-// 	body := msg + "\n"
-//
-// 	h := GetDefaultHeaders(len(body))
-//
-// 	WriteStatusLine(w, code)
-// 	WriteHeaders(w, h)
-// 	io.WriteString(w, body)
-// }
-//
-// func WriteError(w io.Writer, err error) {
-// 	var errHandler *HandleError
-//
-// 	if errors.As(err, &errHandler) {
-// 		WriteErrorResponse(w, errHandler.Code, errHandler.Msg)
-// 		return
-// 	}
-// }
+type writerState int
 
-func WriteResponse(w io.Writer, bodyLen int, status StatusCode) error {
-	if w == nil {
-		return fmt.Errorf("nil writer")
+const (
+	stateInit writerState = iota
+	stateStatusWritten
+	stateHeadersWritten
+	stateBodyWritten
+)
+
+type Writer struct {
+	StatusCode StatusCode
+	Headers    map[string]string
+	Body       bytes.Buffer
+	state      writerState
+}
+
+func NewWriter() *Writer {
+	h := GetDefaultHeaders()
+	return &Writer{
+		StatusCode: StatusOK,
+		Headers:    h,
 	}
-
-	WriteStatusLine(w, status)
-	h := GetDefaultHeaders(bodyLen)
-	err := WriteHeaders(w, h)
-	return err
 }
 
-func WriteHeaders(w io.Writer, h headers.Headers) error {
-	s := fmt.Sprintf(
-		"%s: %s\r\n%s: %s\r\n%s: %s\r\n\r\n",
-		ContLen, h[ContLen],
-		Conn, h[Conn],
-		ContType, h[ContType],
-	)
-
-	_, err := io.WriteString(w, s)
-	return err
+func (w *Writer) Write(p []byte) (int, error) {
+	return w.Body.Write(p)
 }
 
-func GetDefaultHeaders(contentLen int) headers.Headers {
+func (w *Writer) WriteResponse(out io.Writer) {
+	w.WriteStatusLine(out)
+	w.WriteHeaders(out)
+	w.WriteBody(out)
+}
+
+func GetDefaultHeaders() headers.Headers {
 	h := headers.NewHeaders()
-	h[ContLen] = strconv.Itoa(contentLen)
 	h[Conn] = "close"
 	h[ContType] = "text/plain"
 
 	return h
 }
 
-func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
-	if _, err := io.WriteString(w, "HTTP/1.1 "); err != nil {
+func (w *Writer) WriteStatusLine(out io.Writer) error {
+	if w.state != stateInit {
+		return fmt.Errorf("WriteStatusLine called out of order")
+	}
+
+	statusText := map[StatusCode]string{
+		StatusOK:                  "OK",
+		StatusBadRequest:          "Bad Request",
+		StatusInternalServerError: "Internal Server Error",
+	}
+
+	text, ok := statusText[w.StatusCode]
+	if !ok {
+		text = "Unknown"
+	}
+
+	if _, err := fmt.Fprintf(out, "HTTP/1.1 %d %s\r\n", w.StatusCode, text); err != nil {
 		return err
 	}
 
-	switch statusCode {
-	case SC200:
-		_, err := io.WriteString(w, "200 OK\r\n")
-		return err
-	case SC400:
-		_, err := io.WriteString(w, "400 Bad Request\r\n")
-		return err
-	case SC500:
-		_, err := io.WriteString(w, "500 Internal Server Error\r\n")
-		return err
-	default:
-		return nil
-	}
+	w.state = stateStatusWritten
+	return nil
 }
 
-// func (e *HandleError) Error() string {
-// 	return e.Msg
-// }
-//
-// func BadRequest(msg string) *HandleError {
-// 	return &HandleError{
-// 		Code: SC400,
-// 		Msg:  msg,
-// 	}
-// }
-//
-// func InternalError(msg string) *HandleError {
-// 	return &HandleError{
-// 		Code: SC500,
-// 		Msg:  msg,
-// 	}
-// }
+func (w *Writer) WriteHeaders(out io.Writer) error {
+	if w.state != stateStatusWritten {
+		return fmt.Errorf("WriteHeaders called out of order")
+	}
+
+	if _, ok := w.Headers[ContLen]; !ok {
+		w.Headers[ContLen] = strconv.Itoa(len(w.Body.Bytes()))
+	}
+
+	var headerStr strings.Builder
+	for k, v := range w.Headers {
+		headerStr.WriteString(k)
+		headerStr.WriteString(": ")
+		headerStr.WriteString(v)
+		headerStr.WriteString("\r\n")
+	}
+	headerStr.WriteString("\r\n")
+
+	if _, err := io.WriteString(out, headerStr.String()); err != nil {
+		return err
+	}
+
+	w.state = stateHeadersWritten
+	return nil
+}
+
+func (w *Writer) WriteBody(out io.Writer) (int, error) {
+	if w.state != stateHeadersWritten {
+		return 0, fmt.Errorf("WriteBody called out of order")
+	}
+
+	n, err := out.Write(w.Body.Bytes())
+	return n, err
+}

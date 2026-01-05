@@ -1,9 +1,7 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"sync/atomic"
@@ -14,6 +12,7 @@ import (
 
 type Server struct {
 	listener net.Listener
+	handler  HandlerFunc
 	closed   atomic.Bool
 }
 
@@ -27,50 +26,28 @@ func (s *Server) Close() error {
 	return s.listener.Close()
 }
 
-type HandlerFunc func(w io.Writer, req *request.Request) *HandleError
+type HandlerFunc func(w *response.Writer, req *request.Request)
 
-func (he HandleError) ErrorWriter(w io.Writer) error {
-	if w == nil {
-		return fmt.Errorf("nil writer")
-	}
-
-	if err := response.WriteStatusLine(w, he.StatusCode); err != nil {
-		return err
-	}
-
-	body := he.Msg + "\n"
-	h := response.GetDefaultHeaders(len(he.Msg))
-	if err := response.WriteHeaders(w, h); err != nil {
-		return err
-	}
-
-	_, err := io.WriteString(w, body)
-	return err
-}
-
-func (s *Server) handle(conn net.Conn, handler HandlerFunc) {
+func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
 
-	r, err := request.RequestFromReader(conn)
+	req, err := request.RequestFromReader(conn)
 	if err != nil {
-		(&HandleError{
-			StatusCode: response.SC400,
-			Msg:        "bad request",
-		}).ErrorWriter(conn)
+		errWriter := response.NewWriter()
+		errWriter.StatusCode = response.StatusBadRequest
+		errWriter.Body.Reset()
+		errWriter.Body.Write([]byte("Bad Request\n"))
+		errWriter.WriteResponse(conn)
 		return
 	}
 
-	var buf bytes.Buffer
-	if herr := handler(&buf, r); herr != nil {
-		herr.ErrorWriter(conn)
-		return
-	}
+	rw := response.NewWriter()
 
-	body := buf.Bytes()
-	response.WriteResponse(conn, len(body), response.SC400)
+	s.handler(rw, req)
+	rw.WriteResponse(conn)
 }
 
-func (s *Server) listen(handler HandlerFunc) {
+func (s *Server) listen() {
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
@@ -79,7 +56,7 @@ func (s *Server) listen(handler HandlerFunc) {
 				return
 			}
 		}
-		go s.handle(conn, handler)
+		go s.handle(conn)
 	}
 }
 
@@ -93,9 +70,10 @@ func Serve(port int, handler HandlerFunc) (*Server, error) {
 
 	s := &Server{
 		listener: ln,
+		handler:  handler,
 	}
 
-	go s.listen(handler)
+	go s.listen()
 
 	return s, nil
 }

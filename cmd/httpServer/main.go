@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -14,24 +13,18 @@ import (
 
 const port = 42069
 
-func testHandler(w io.Writer, req *request.Request) *server.HandleError {
+func testHandler(w *response.Writer, req *request.Request) {
 
 	switch req.RequestLine.RequestTarget {
 	case "/yourproblem":
-		return &server.HandleError{
-			StatusCode: response.SC400,
-			Msg:        "Your problem is not my problem\n",
-		}
+		w.StatusCode = response.StatusBadRequest
+		w.Write([]byte("Your problem is not my problem\n"))
 	case "/myproblem":
-		return &server.HandleError{
-			StatusCode: response.SC500,
-			Msg:        "Woopsie, my bad\n",
-		}
+		w.StatusCode = response.StatusInternalServerError
+		w.Write([]byte("Woopsie, my bad\n"))
 	default:
-		return &server.HandleError{
-			StatusCode: response.SC200,
-			Msg:        "All good, frfr\n",
-		}
+		w.StatusCode = response.StatusOK
+		w.Write([]byte("All good, frfr\n"))
 	}
 }
 
