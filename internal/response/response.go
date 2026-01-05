@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	Conn     = "Connection"
-	ContLen  = "Content-Length"
-	ContType = "Content-Type"
+	Conn      = "Connection"
+	ContLen   = "Content-Length"
+	ContType  = "Content-Type"
+	TransfEnc = "Transfer-Encoding"
 )
 
 type StatusCode int
@@ -38,6 +39,7 @@ type Writer struct {
 	Headers    map[string]string
 	Body       bytes.Buffer
 	state      writerState
+	chunked    bool
 }
 
 func NewWriter() *Writer {
@@ -55,6 +57,32 @@ func (w *Writer) Write(p []byte) (int, error) {
 func (w *Writer) WriteString(s string) (int, error) {
 	return w.Body.WriteString(s)
 }
+
+func (w *Writer) WriteChunkedBody(p []byte, out io.Writer) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	sizeLine := strconv.FormatInt(int64(len(p)), 16) + "\r\n"
+	if n, err := io.WriteString(out, sizeLine); err != nil {
+		return n, err
+	}
+
+	n, err := out.Write(p)
+	if err != nil {
+		return 0, nil
+	}
+
+	if _, err := io.WriteString(out, "\r\n"); err != nil {
+		return n, err
+	}
+
+	return n, nil
+}
+
+// func (w *Writer) WriteChunkedBodyDone() (int, error) {
+//
+// }
 
 func (w *Writer) WriteResponse(out io.Writer) error {
 	if err := w.WriteStatusLine(out); err != nil {
