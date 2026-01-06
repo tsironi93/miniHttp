@@ -33,18 +33,13 @@ func (s *Server) handle(conn net.Conn) {
 
 	req, err := request.RequestFromReader(conn)
 	if err != nil {
-		errWriter := response.NewWriter()
-		errWriter.StatusCode = response.StatusBadRequest
-		errWriter.Body.Reset()
-		errWriter.Body.Write([]byte("Bad Request\n"))
-		errWriter.WriteResponse(conn)
+		response.WriteBadRequestResponse(conn)
 		return
 	}
 
-	rw := response.NewWriter()
+	rw := response.NewWriter(conn)
 
 	s.handler(rw, req)
-	rw.WriteResponse(conn)
 }
 
 func (s *Server) listen() {
