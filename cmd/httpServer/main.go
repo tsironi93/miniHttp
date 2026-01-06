@@ -34,6 +34,24 @@ func loadHtml(path string) string {
 	return string(data)
 }
 
+func handleVideo(w *response.Writer) {
+	videoPath := "./assets/vim.mp4"
+
+	data, err := os.ReadFile(videoPath)
+	if err != nil {
+		log.Println(err)
+		response.WriteBadRequestResponse(w.Out)
+		return
+	}
+
+	h :=response.GetDefaultHeaders()
+	h[response.ContType] = "video/mp4"
+	w.WriteHeaders()
+
+	w.Write(data)
+	w.WriteResponse()
+}
+
 func htmlHandler(w *response.Writer, req *request.Request) {
 	switch req.RequestLine.RequestTarget {
 	case "/yourproblem":
@@ -42,6 +60,8 @@ func htmlHandler(w *response.Writer, req *request.Request) {
 	case "/myproblem":
 		w.StatusCode = response.StatusInternalServerError
 		w.WriteString(loadHtml("./internal/htmlTemplates/500.html"))
+	case "/video":
+		handleVideo(w)
 	default:
 		w.StatusCode = response.StatusOK
 		w.WriteString(loadHtml("./internal/htmlTemplates/200.html"))

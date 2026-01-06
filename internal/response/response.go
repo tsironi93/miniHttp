@@ -20,6 +20,15 @@ const (
 	TransfEnc = "Transfer-Encoding"
 )
 
+type ContentType int
+
+const (
+	Plain ContentType = iota
+	Html
+	Image
+	Video
+)
+
 type StatusCode int
 
 const (
@@ -43,16 +52,16 @@ type Writer struct {
 	Body       bytes.Buffer
 	state      writerState
 	Chunked    bool
-	conn       net.Conn
+	Out       net.Conn
 }
 
-func NewWriter(conn net.Conn) *Writer {
+func NewWriter(out net.Conn) *Writer {
 	h := GetDefaultHeaders()
 	return &Writer{
 		StatusCode: StatusOK,
 		Headers:    h,
 		Chunked:    false,
-		conn:       conn,
+		Out:       out,
 	}
 }
 
@@ -80,8 +89,8 @@ func (w *Writer) WriteResponse() error {
 	return nil
 }
 
-func WriteBadRequestResponse(conn net.Conn) {
-	errWriter := NewWriter(conn)
+func WriteBadRequestResponse(out net.Conn) {
+	errWriter := NewWriter(out)
 	errWriter.StatusCode = StatusBadRequest
 	errWriter.Body.Reset()
 	errWriter.Body.Write([]byte("Bad Request\n"))
@@ -112,7 +121,7 @@ func (w *Writer) WriteStatusLine() error {
 		text = "Unknown"
 	}
 
-	if _, err := fmt.Fprintf(w.conn, "HTTP/1.1 %d %s"+CRLF, w.StatusCode, text); err != nil {
+	if _, err := fmt.Fprintf(w.Out, "HTTP/1.1 %d %s"+CRLF, w.StatusCode, text); err != nil {
 		return err
 	}
 
@@ -138,7 +147,7 @@ func (w *Writer) WriteHeaders() error {
 	}
 	headerStr.WriteString("\r\n")
 
-	if _, err := io.WriteString(w.conn, headerStr.String()); err != nil {
+	if _, err := io.WriteString(w.Out, headerStr.String()); err != nil {
 		return err
 	}
 
@@ -151,7 +160,7 @@ func (w *Writer) WriteBody() (int, error) {
 		return 0, fmt.Errorf("WriteBody called out of order")
 	}
 
-	n, err := w.conn.Write(w.Body.Bytes())
+	n, err := w.Out.Write(w.Body.Bytes())
 	if err != nil {
 		return 0, err
 	}
@@ -166,16 +175,16 @@ func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
 	}
 
 	sizeLine := strconv.FormatInt(int64(len(p)), 16) + CRLF
-	if n, err := io.WriteString(w.conn, sizeLine); err != nil {
+	if n, err := io.WriteString(w.Out, sizeLine); err != nil {
 		return n, err
 	}
 
-	n, err := w.conn.Write(p)
+	n, err := w.Out.Write(p)
 	if err != nil {
 		return 0, nil
 	}
 
-	if _, err := io.WriteString(w.conn, CRLF); err != nil {
+	if _, err := io.WriteString(w.Out, CRLF); err != nil {
 		return n, err
 	}
 
@@ -183,7 +192,7 @@ func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
 }
 
 func (w *Writer) WriteChunkedBodyDone() (int, error) {
-	n, err := io.WriteString(w.conn, "0"+CRLF)
+	n, err := io.WriteString(w.Out, "0"+CRLF)
 	w.state = stateBodyWritten
 	return n, err
 }
@@ -202,6 +211,6 @@ func (w *Writer) WriteTrailers(h headers.Headers) error {
 	}
 	b.WriteString(CRLF)
 
-	_, err := io.WriteString(w.conn, b.String())
+	_, err := io.WriteString(w.Out, b.String())
 	return err
 }
