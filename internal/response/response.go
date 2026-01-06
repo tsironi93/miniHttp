@@ -80,9 +80,10 @@ func (w *Writer) WriteChunkedBody(p []byte, out io.Writer) (int, error) {
 	return n, nil
 }
 
-// func (w *Writer) WriteChunkedBodyDone() (int, error) {
-//
-// }
+func (w *Writer) WriteChunkedBodyDone(out io.Writer) (int, error) {
+	n, err := io.WriteString(out, "0\r\n\r\n")
+	return n, err
+}
 
 func (w *Writer) WriteResponse(out io.Writer) error {
 	if err := w.WriteStatusLine(out); err != nil {
